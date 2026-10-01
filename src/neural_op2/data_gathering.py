@@ -1,9 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from sympy.abc import x, y
-from scipy.sparse.linalg import cg
+from scipy.sparse.linalg import cg, spsolve
 import torch
 import torch.nn as nn
+from scipy.sparse import identity, kron, diags
 
 def sample_field_params(n_modes=6, rng=None):
     """
@@ -65,35 +66,93 @@ def evaluate_field(params, n):
         f += amp * np.sin(k_x * np.pi * X + phase_x) * np.sin(k_y * np.pi * Y + phase_y)
     return f
 
-def build_laplacian_matrix(n):
+def random_source_field(n, n_modes=6, rng=None):
+    """
+    Sample a random source term f(x, y) directly on an n x n grid.
+    Equivalent to `evaluate_field(sample_field_params(n_modes, rng), n)`;
+    kept as a convenience wrapper since Phases 1-4 only ever need f at a
+    single, fixed resolution.
+    """
+    params = sample_field_params(n_modes=n_modes, rng=rng)
+    return evaluate_field(params, n)
+
+def discrete_laplacian(n):
     """
     Build the discrete Laplacian matrix for a 2D grid using the finite 
-    difference analog of the poisson equation.
+    difference analog of the poisson equation. Output shape is a square
+    (n-2) x (n-2) matrix where each row represents the linear equation 
+    of the interior point (i,j):
+
+        -u_{i+1,j} - u_{i-1,j} - u_{i,j+1} - u_{i,j-1} + 4*u_{i,j} = h^2 * f_{i,j}
     
+    This is done so so that the matrix is posivite-definite and we can 
+    use the conjugate gradient method to solve the system. 
+
+    Example of the stencil when n = 4:
+     ___  ___  ___
+    |   ||   ||   |
+    |___||___||___|
+    |   ||   ||   |
+    |___||___||___|
+    |   ||   ||   |
+    |___||___||___|
+
+    n = 3:
+     ______  ______
+    |      ||      |
+    |      ||      |
+    |______||______|
+    |      ||      |
+    |      ||      |
+    |______||______|
+
+    n = 2:
+     _____________
+    |             |
+    |             |
+    |             |
+    |             |
+    |             |
+    |_____________|
+    
+
     Args:
         n: Grid size (n x n) where n > 2
     
     Returns:
-        L: Discrete Laplacian matrix of shape (n^2, n^2)
+        A: CSR Laplacian matrix of shape (n - 2) x (n - 2)
     """
-    n_int = (n-2)**2
-    m_int = int(np.sqrt(n_int))
-    L = np.zeros((n_int, n_int))
 
-    # Diagonals of L
-    # Main diagonal
-    L[np.arange(n_int), np.arange(n_int)] = -4
-    # Off-diagonals
-    L[np.arange(n_int-1), np.arange(1, n_int)] = 1
-    L[np.arange(1, n_int), np.arange(n_int-1)] = 1
-
+    if (n <= 2):
+        raise Exception("Matrix not needed. No interior points.")
     
+    n_int = n - 2
 
-    return L
+    e = np.ones(n_int)
+    T = diags([e[:-1], -2 * e, e[:-1]], offsets=[-1, 0, 1])
+    I = identity(n_int)
+
+    A = kron(I, T) + kron(T, I)
+    return -A.tocsr()
+
+def solve_poisson(n, f):
+    A = discrete_laplacian(n)
+    f_int = f[1:-1, 1:-1].flatten()
+    u_int = spsolve(A, f_int) # spsolve uses LU decomposition
+    u = np.zeros((n, n))
+    u[1:-1, 1:-1] = u_int.reshape(n-2, n-2)
+    return u
 
 if __name__ == "__main__":
-    L = build_laplacian_matrix(5)
-    print(L)
+    n = 4
+    A = discrete_laplacian(n).toarray()
+    f = random_source_field(n)
+    print(
+        f"Matrix A:\n{A}",
+        f"\nf: \n{f}",
+        f"\nf[1:-1, 1:-1]: \n{f[1:-1, 1:-1]}"
+        )
+    
 
 
 
