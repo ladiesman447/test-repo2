@@ -86,7 +86,9 @@ def discrete_laplacian(n):
         -u_{i+1,j} - u_{i-1,j} - u_{i,j+1} - u_{i,j-1} + 4*u_{i,j} = h^2 * f_{i,j}
     
     This is done so so that the matrix is posivite-definite and we can 
-    use the conjugate gradient method to solve the system. 
+    use the conjugate gradient method to solve the system. <Needs to be
+    reviewed for correctness. i.e. make a function that will convert 
+    csr to band matrix.>
 
     Example of the stencil when n = 4:
      ___  ___  ___
@@ -136,6 +138,19 @@ def discrete_laplacian(n):
     return -A.tocsr()
 
 def solve_poisson(n, f):
+    """
+    Solve the 2D Poisson equation on an n x n grid with the following
+    Dirichlet boundary conditions:
+
+        u = 0 on the boundary
+
+    Args:
+        n: Grid size (n x n)
+        f: Source term of shape (n x n)
+
+    Returns:
+        u: Solution of shape (n x n)
+    """
     A = discrete_laplacian(n)
     f_int = f[1:-1, 1:-1].flatten()
     u_int = spsolve(A, f_int) # spsolve uses LU decomposition
@@ -147,10 +162,13 @@ if __name__ == "__main__":
     n = 4
     A = discrete_laplacian(n).toarray()
     f = random_source_field(n)
+    F = f[1:-1, 1:-1].reshape((n-2)*(n-2), 1)
     print(
         f"Matrix A:\n{A}",
         f"\nf: \n{f}",
-        f"\nf[1:-1, 1:-1]: \n{f[1:-1, 1:-1]}"
+        f"\nf[1:-1, 1:-1]: \n{f[1:-1, 1:-1]}",
+        f"\nF (flattened): \n{F}"
+        f"\nSolution u: \n{solve_poisson(n, f)}"
         )
     
 
