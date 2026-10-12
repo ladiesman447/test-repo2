@@ -5,6 +5,7 @@ from scipy.sparse.linalg import cg, spsolve
 import torch
 import torch.nn as nn
 from scipy.sparse import identity, kron, diags
+from pathlib import Path
 
 def sample_field_params(n_modes=6, rng=None):
     """
@@ -86,9 +87,7 @@ def discrete_laplacian(n):
         -u_{i+1,j} - u_{i-1,j} - u_{i,j+1} - u_{i,j-1} + 4*u_{i,j} = h^2 * f_{i,j}
     
     This is done so so that the matrix is posivite-definite and we can 
-    use the conjugate gradient method to solve the system. <Needs to be
-    reviewed for correctness. i.e. make a function that will convert 
-    csr to band matrix.>
+    use the conjugate gradient method to solve the system.
 
     Example of the stencil when n = 4:
      ___  ___  ___
@@ -137,7 +136,7 @@ def discrete_laplacian(n):
     A = kron(I, T) + kron(T, I)
     return -A.tocsr()
 
-def solve_poisson(n, f):
+def solve_poisson(f, n):
     """
     Solve the 2D Poisson equation on an n x n grid with the following
     Dirichlet boundary conditions:
@@ -151,25 +150,67 @@ def solve_poisson(n, f):
     Returns:
         u: Solution of shape (n x n)
     """
+    h = 1 / (n - 1)
+
     A = discrete_laplacian(n)
-    f_int = f[1:-1, 1:-1].flatten()
-    u_int = spsolve(A, f_int) # spsolve uses LU decomposition
+    f_int = f[1:-1, 1:-1].flatten() * h**2
+    u_int = spsolve(A, f_int) 
+
     u = np.zeros((n, n))
     u[1:-1, 1:-1] = u_int.reshape(n-2, n-2)
     return u
 
-if __name__ == "__main__":
-    n = 4
+def generate_dataset(n_samples, grid_size=64, n_modes=6, seed=0):
+    rng = np.random.default_rng(seed)
+    F = np.zeros((n_samples, grid_size, grid_size), dtype=np.float32)
+    U = np.zeros((n_samples, grid_size, grid_size), dtype=np.float32)
+
+    for i in range(n_samples):
+        f = random_source_field(grid_size, n_modes=n_modes, rng=rng)
+        u = solve_poisson(f, grid_size)
+        F[i] = f
+        U[i] = u
+        if (i + 1) % 200 == 0:
+            print(f"  generated {i + 1}/{n_samples}")
+
+    return F, U
+
+def main():
+    n = 5
     A = discrete_laplacian(n).toarray()
     f = random_source_field(n)
-    F = f[1:-1, 1:-1].reshape((n-2)*(n-2), 1)
+    F = f[1:-1, 1:-1].flatten()
     print(
         f"Matrix A:\n{A}",
         f"\nf: \n{f}",
         f"\nf[1:-1, 1:-1]: \n{f[1:-1, 1:-1]}",
         f"\nF (flattened): \n{F}"
-        f"\nSolution u: \n{solve_poisson(n, f)}"
+        #f"\nSolution u: \n{solve_poisson(f, n)}"
         )
+
+if __name__ == "__main__":
+    OUT_DIR = Path(__file__).resolve().parent.parent.parent / "data"
+    grid_size = 64
+
+    print("Generating training set...")
+    F_train, U_train = generate_dataset(2000, grid_size=grid_size, n_modes=6, seed=0)
+
+    print("Generating validation set...")
+    F_val, U_val = generate_dataset(200, grid_size=grid_size, n_modes=6, seed=1)
+
+    print("Generating in-distribution test set...")
+    F_test, U_test = generate_dataset(200, grid_size=grid_size, n_modes=6, seed=2)
+
+    print("Generating out-of-distribution ('hard') test set (sharper features)...")
+    F_hard, U_hard = generate_dataset(200, grid_size=grid_size, n_modes=14, seed=3)
+
+    np.savez(OUT_DIR / "train.npz", f=F_train, u=U_train)
+    np.savez(OUT_DIR / "val.npz", f=F_val, u=U_val)
+    np.savez(OUT_DIR / "test.npz", f=F_test, u=U_test)
+    np.savez(OUT_DIR / "test_hard.npz", f=F_hard, u=U_hard)
+
+    print("Done. Saved train.npz, val.npz, test.npz, test_hard.npz")
+
     
 
 
