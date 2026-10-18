@@ -175,19 +175,6 @@ def generate_dataset(n_samples, grid_size=64, n_modes=6, seed=0):
 
     return F, U
 
-def main():
-    n = 5
-    A = discrete_laplacian(n).toarray()
-    f = random_source_field(n)
-    F = f[1:-1, 1:-1].flatten()
-    print(
-        f"Matrix A:\n{A}",
-        f"\nf: \n{f}",
-        f"\nf[1:-1, 1:-1]: \n{f[1:-1, 1:-1]}",
-        f"\nF (flattened): \n{F}"
-        #f"\nSolution u: \n{solve_poisson(f, n)}"
-        )
-
 if __name__ == "__main__":
     OUT_DIR = Path(__file__).resolve().parent.parent.parent / "data"
     grid_size = 64
@@ -204,12 +191,12 @@ if __name__ == "__main__":
     print("Generating out-of-distribution ('hard') test set (sharper features)...")
     F_hard, U_hard = generate_dataset(200, grid_size=grid_size, n_modes=14, seed=3)
 
-    np.savez(OUT_DIR / "train.npz", f=F_train, u=U_train)
-    np.savez(OUT_DIR / "val.npz", f=F_val, u=U_val)
-    np.savez(OUT_DIR / "test.npz", f=F_test, u=U_test)
-    np.savez(OUT_DIR / "test_hard.npz", f=F_hard, u=U_hard)
+    np.savez(OUT_DIR / "train_data.npz", f=F_train, u=U_train)
+    np.savez(OUT_DIR / "val_data.npz", f=F_val, u=U_val)
+    np.savez(OUT_DIR / "test_data.npz", f=F_test, u=U_test)
+    np.savez(OUT_DIR / "test_hard_data.npz", f=F_hard, u=U_hard)
 
-    print("Done. Saved train.npz, val.npz, test.npz, test_hard.npz")
+    print("Done. Saved train_data.npz, val_data.npz, test_data.npz, test_hard_data.npz")
 
     
 
