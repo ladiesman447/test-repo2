@@ -1,5 +1,5 @@
 from neuralop.models import FNO
-from utils_.utils import PoissonDataset
+from utils_.utils import PoissonDataset, relative_l2_error
 from torch.utils.data import DataLoader
 import torch
 import time
