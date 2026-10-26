@@ -22,6 +22,20 @@ class PINN(nn.Module):
     def forward(self, xy):
         return self.net(xy)
 
+class HardConstrainedPINN(nn.Module):
+    def __init__(self, hidden_dim=64, constant=0.0):
+        super().__init__()
+        self.constant = constant
+        self.net = PINN(hidden_dim)
+    
+    def forward(self, xy):
+        # Hard constraints: u(0, y) = 0, u(1, y) = 0, u(x, 0) = 0, u(x, 1) = 0
+        x, y = xy[:, 0], xy[:, 1]
+        d = x * (1 - x) * y * (1 - y)
+        u = self.net(xy)
+        c = self.constant
+        return c + d * u 
+
 def PDE_loss(model, xy, f):
     u = model(xy)
     u_x = grad(u, xy[:, 0], grad_outputs=torch.ones_like(u), create_graph=True)[0]
@@ -31,11 +45,10 @@ def PDE_loss(model, xy, f):
     return torch.mean((u_xx + u_yy - f) ** 2)
 
 def interpolate_f_grid(f_grid, xy):
-    # TODO: Implement interpolation logic
+    # TODO: Implement bilinear interpolation logic
     pass
 
-def train_PINN(f_grid, n_iters=2000, n_collocation=1000, n_boundary=200, lr=1e-3, device="cpu") -> PINN:
-    # Example training loop (not fully implemented)
+def train_PINN(f_grid, n_iters=2000, n_collocation=1000, n_boundary=200, lr=1e-3, device="cpu"):
     f_grid = f_grid.to(device)
     model = PINN().to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -43,6 +56,7 @@ def train_PINN(f_grid, n_iters=2000, n_collocation=1000, n_boundary=200, lr=1e-3
 
     t0 = time.time()
     for epoch in range(n_iters):
+        model.train()
         optimizer.zero_grad()
         
         x = torch.rand(n_collocation, 1, device=device)
@@ -52,26 +66,26 @@ def train_PINN(f_grid, n_iters=2000, n_collocation=1000, n_boundary=200, lr=1e-3
 
         u_pred = model(xy)
 
-        pde_loss_val = PDE_loss(model, xy, f_interpolated)
-
-        edge = torch.rand(n_boundary // 4, 1, device=device)
+        pde_loss_val = PDE_loss(u_pred, xy, f_interpolated)
 
         # Boundary 1: y = 0, x in [0, 1]
-        # Boundary 2: y = 1, x in [0, 1]
-        # Boundary 3: x = 0, y in [0, 1]
-        # Boundary 4: x = 1, y in [0, 1]
+        # Boundary 2: x = 1, y in [0, 1]
+        # Boundary 3: y = 1, x in [0, 1]
+        # Boundary 4: x = 0, y in [0, 1]
+
         # boundary variable is written as such for each boundary [x,y]
+        edge = torch.rand(n_boundary // 4, 1, device=device)
         boundary = [
             torch.cat([edge, torch.zeros_like(edge)], dim=1),
+            torch.cat([torch.ones_like(edge), edge], dim=1),
             torch.cat([edge, torch.ones_like(edge)], dim=1),
             torch.cat([torch.zeros_like(edge), edge], dim=1),
-            torch.cat([torch.ones_like(edge), edge], dim=1),
         ]
+        xy_boundary = torch.cat(boundary, dim=0)
+        boundary_pred = model(xy_boundary)
+        boundary_loss = criterion(boundary_pred)
 
-        boundary_pred = model(torch.cat(boundary, dim=0))
-
-        
-        loss = pde_loss_val
+        loss = pde_loss_val + boundary_loss
         loss.backward()
         optimizer.step()
 
@@ -81,9 +95,33 @@ def train_PINN(f_grid, n_iters=2000, n_collocation=1000, n_boundary=200, lr=1e-3
     training_time = time.time() - t0
     return model, training_time
 
-def train_hard_constrained_PINN():
-    # TODO: Implement hard constrained PINN training i.e. forcing boundary to be zero
-    pass
+def train_hard_constrained_PINN(f_grid, n_iters=2000, n_collocation=1000, lr=1e-3, device="cpu"):
+    f_grid = f_grid.to(device)
+    model = HardConstrainedPINN().to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+
+    t0 = time.time()
+    for epoch in range(n_iters):
+        model.train()
+        optimizer.zero_grad()
+        
+        x = torch.rand(n_collocation, 1, device=device)
+        y = torch.rand(n_collocation, 1, device=device)
+        xy = torch.cat([x, y], dim=1)
+        f_interpolated = interpolate_f_grid(f_grid, xy)
+
+        u_pred = model(xy)
+
+        loss = PDE_loss(u_pred, xy, f_interpolated)
+
+        loss.backward()
+        optimizer.step()
+
+        if epoch % 10 == 0:
+            print(f"Epoch {epoch}, Loss: {loss.item()}")
+
+    training_time = time.time() - t0
+    return model, training_time
 
 if __name__ == "__main__":
     print(f"Using {DEVICE} device")
@@ -97,14 +135,14 @@ if __name__ == "__main__":
     y = torch.rand(3, 1)
     x1 = torch.zeros_like(x)
     y1 = torch.rand_like(y)
-    dim = 1
+    dim = 0
     xy = torch.cat([x, y], dim=dim)
     print(f'x: {x}')
     print(f'y: {y}')
     print(f'xy with dim={dim}: {xy}')
     print(f'xy shape: {xy.shape}')
     xy1 = torch.cat([x1, y1], dim=dim)
-    XY = torch.cat([xy, xy1], dim=0)
+    XY = torch.cat([xy, xy1], dim=1)
     print(f'XY: {XY}')
 
     #model, training_time = train_PINN(f_grid=f_grid, n_iters=15, device=DEVICE)
