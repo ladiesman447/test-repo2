@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.autograd import grad
 import time
 
@@ -55,6 +56,27 @@ def interpolate_f_grid(f_grid, xy):
     return sampled.view(-1)
 
 def train_PINN(f_grid, n_iters=2000, n_collocation=1000, n_boundary=200, lr=1e-3, device="cpu"):
+    """
+    Train PINN to solve poisson equation with given source term f_grid.
+
+    Boundary 1: y = 0, x in [0, 1]
+    Boundary 2: x = 1, y in [0, 1]
+    Boundary 3: y = 1, x in [0, 1]
+    Boundary 4: x = 0, y in [0, 1]
+
+    Boundary variable is written as such for each boundary [x,y]
+
+    Args:
+        f_grid: 2D tensor of shape (H, W) representing the source term
+        n_iters: number of training iterations
+        n_collocation: number of collocation points for PDE loss
+        n_boundary: number of boundary points for boundary loss
+        lr: learning rate
+        device: device to run the training on ("cpu" or "cuda")
+    Returns:
+        model: trained PINN model
+        training_time: time taken for training in seconds
+    """
     f_grid = f_grid.to(device)
     model = PINN().to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -74,12 +96,6 @@ def train_PINN(f_grid, n_iters=2000, n_collocation=1000, n_boundary=200, lr=1e-3
 
         pde_loss_val = PDE_loss(u_pred, xy, f_interpolated)
 
-        # Boundary 1: y = 0, x in [0, 1]
-        # Boundary 2: x = 1, y in [0, 1]
-        # Boundary 3: y = 1, x in [0, 1]
-        # Boundary 4: x = 0, y in [0, 1]
-
-        # boundary variable is written as such for each boundary [x,y]
         edge = torch.rand(n_boundary // 4, 1, device=device)
         boundary = [
             torch.cat([edge, torch.zeros_like(edge)], dim=1),
@@ -102,6 +118,19 @@ def train_PINN(f_grid, n_iters=2000, n_collocation=1000, n_boundary=200, lr=1e-3
     return model, training_time
 
 def train_hard_constrained_PINN(f_grid, n_iters=2000, n_collocation=1000, lr=1e-3, device="cpu"):
+    """
+    Train a hard-constrained PINN to solve the Poisson equation with given source term f_grid.
+
+    Args:
+        f_grid: 2D tensor of shape (H, W) representing the source term
+        n_iters: number of training iterations
+        n_collocation: number of collocation points for PDE loss
+        lr: learning rate
+        device: device to run the training on ("cpu" or "cuda")
+    Returns:
+        model: trained hard-constrained PINN model
+        training_time: time taken for training in seconds
+    """
     f_grid = f_grid.to(device)
     model = HardConstrainedPINN().to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
